@@ -34,6 +34,7 @@ type NodeInfo struct {
 
 type UserInfo struct {
 	UID           int
+	EmailTag      string
 	Email         string
 	Passwd        string
 	Port          int

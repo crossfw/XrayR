@@ -57,13 +57,18 @@ func (c *Controller) Start() error {
 	if err != nil {
 		return err
 	}
+	c.nodeInfo = newNodeInfo
+	tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
+	// InboundTag|user UID
+	for uid := 0; uid < len(*userInfo); uid++ {
+		(*userInfo)[uid].EmailTag = fmt.Sprintf("%s|%d", tag, (*userInfo)[uid].UID)
+	}
 	err = c.addNewUser(userInfo, newNodeInfo)
 	if err != nil {
 		return err
 	}
-	c.nodeInfo = newNodeInfo
+
 	c.userList = userInfo
-	tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
 	// Add Limiter
 	if err := c.AddInboundLimiter(tag, newNodeInfo.SpeedLimit, userInfo); err != nil {
 		log.Print(err)
@@ -184,7 +189,7 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 		if len(deleted) > 0 {
 			deletedEmail := make([]string, len(deleted))
 			for i, u := range deleted {
-				deletedEmail[i] = fmt.Sprintf("%s|%d", u.Email, u.UID)
+				deletedEmail[i] = u.EmailTag
 			}
 			tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
 			err := c.removeUsers(deletedEmail, tag)
@@ -246,6 +251,8 @@ func (c *Controller) addNewTag(newNodeInfo *api.NodeInfo) (err error) {
 
 func (c *Controller) addNewUser(userInfo *[]api.UserInfo, nodeInfo *api.NodeInfo) (err error) {
 	users := make([]*protocol.User, 0)
+	tag := fmt.Sprintf("%s_%d", nodeInfo.NodeType, nodeInfo.Port)
+
 	if nodeInfo.NodeType == "V2ray" {
 		if nodeInfo.EnableVless {
 			users = buildVlessUser(userInfo)
@@ -259,7 +266,7 @@ func (c *Controller) addNewUser(userInfo *[]api.UserInfo, nodeInfo *api.NodeInfo
 	} else {
 		return fmt.Errorf("Unsupported node type: %s", nodeInfo.NodeType)
 	}
-	tag := fmt.Sprintf("%s_%d", nodeInfo.NodeType, nodeInfo.Port)
+
 	err = c.addUsers(users, tag)
 	if err != nil {
 		return err
@@ -322,10 +329,11 @@ func (c *Controller) userInfoMonitor() (err error) {
 	if err != nil {
 		log.Print(err)
 	}
+	tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
 	// Get User traffic
 	userTraffic := make([]api.UserTraffic, 0)
 	for _, user := range *c.userList {
-		up, down := c.getTraffic(fmt.Sprintf("%s|%d", user.Email, user.UID))
+		up, down := c.getTraffic(fmt.Sprintf("%s|%d", tag, user.UID))
 		if up > 0 || down > 0 {
 			userTraffic = append(userTraffic, api.UserTraffic{
 				UID:      user.UID,
@@ -342,7 +350,6 @@ func (c *Controller) userInfoMonitor() (err error) {
 	}
 
 	// Report Online info
-	tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
 	if onlineDevice, err := c.GetOnlineDevice(tag); err != nil {
 		log.Print(err)
 	} else if len(*onlineDevice) > 0 {
