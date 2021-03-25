@@ -57,29 +57,16 @@ func (c *Controller) Start() error {
 	if err != nil {
 		return err
 	}
-	c.nodeInfo = newNodeInfo
-	tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
-	// InboundTag|user UID
-	for uid := 0; uid < len(*userInfo); uid++ {
-		(*userInfo)[uid].EmailTag = fmt.Sprintf("%s|%d", tag, (*userInfo)[uid].UID)
-	}
 	err = c.addNewUser(userInfo, newNodeInfo)
 	if err != nil {
 		return err
 	}
-
+	c.nodeInfo = newNodeInfo
 	c.userList = userInfo
+	tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
 	// Add Limiter
 	if err := c.AddInboundLimiter(tag, newNodeInfo.SpeedLimit, userInfo); err != nil {
 		log.Print(err)
-	}
-	// Add Rule Manager
-	if ruleList, err := c.apiClient.GetNodeRule(); err != nil {
-		log.Printf("Get rule list filed: %s", err)
-	} else {
-		if err := c.UpdateRule(tag, *ruleList); err != nil {
-			log.Print(err)
-		}
 	}
 	c.nodeInfoMonitorPeriodic = &task.Periodic{
 		Interval: time.Duration(c.config.UpdatePeriodic) * time.Second,
@@ -118,7 +105,6 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 	// First fetch Node Info
 	newNodeInfo, err := c.apiClient.GetNodeInfo()
 	if err != nil {
-		log.Print(err)
 		return err
 	}
 	var nodeInfoChanged bool = false
@@ -129,28 +115,16 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 		err := c.removeOldTag(oldtag)
 		if err != nil {
 			log.Print(err)
-			return err
 		}
 		// Add new tag
 		err = c.addNewTag(newNodeInfo)
 		if err != nil {
-			log.Print(err)
-			return err
+			log.Panic(err)
 		}
 		nodeInfoChanged = true
 		c.nodeInfo = newNodeInfo
 		// Remove Old limiter
 		if err = c.DeleteInboundLimiter(oldtag); err != nil {
-			log.Print(err)
-			return err
-		}
-	}
-	// Check Rule
-	if ruleList, err := c.apiClient.GetNodeRule(); err != nil {
-		log.Printf("Get rule list filed: %s", err)
-	} else {
-		tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
-		if err := c.UpdateRule(tag, *ruleList); err != nil {
 			log.Print(err)
 		}
 	}
@@ -170,26 +144,23 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 	newUserInfo, err := c.apiClient.GetUserList()
 	if err != nil {
 		log.Print(err)
-		return err
 	}
 	if nodeInfoChanged {
 		err = c.addNewUser(newUserInfo, newNodeInfo)
 		if err != nil {
 			log.Print(err)
-			return err
 		}
 		// Add Limiter
 		tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
 		if err := c.AddInboundLimiter(tag, newNodeInfo.SpeedLimit, newUserInfo); err != nil {
 			log.Print(err)
-			return err
 		}
 	} else {
 		deleted, added := compareUserList(c.userList, newUserInfo)
 		if len(deleted) > 0 {
 			deletedEmail := make([]string, len(deleted))
 			for i, u := range deleted {
-				deletedEmail[i] = u.EmailTag
+				deletedEmail[i] = u.Email
 			}
 			tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
 			err := c.removeUsers(deletedEmail, tag)
@@ -204,7 +175,7 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 			}
 			// Update Limiter
 			tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
-			if err := c.UpdateInboundLimiter(tag, &added); err != nil {
+			if err := c.AddInboundLimiter(tag, newNodeInfo.SpeedLimit, &added); err != nil {
 				log.Print(err)
 			}
 		}
@@ -227,7 +198,7 @@ func (c *Controller) removeOldTag(oldtag string) (err error) {
 }
 
 func (c *Controller) addNewTag(newNodeInfo *api.NodeInfo) (err error) {
-	inboundConfig, err := InboundBuilder(c.config.ListenIP, newNodeInfo, c.config.CertConfig)
+	inboundConfig, err := InboundBuilder(newNodeInfo, c.config.CertConfig)
 	if err != nil {
 		return err
 	}
@@ -251,8 +222,6 @@ func (c *Controller) addNewTag(newNodeInfo *api.NodeInfo) (err error) {
 
 func (c *Controller) addNewUser(userInfo *[]api.UserInfo, nodeInfo *api.NodeInfo) (err error) {
 	users := make([]*protocol.User, 0)
-	tag := fmt.Sprintf("%s_%d", nodeInfo.NodeType, nodeInfo.Port)
-
 	if nodeInfo.NodeType == "V2ray" {
 		if nodeInfo.EnableVless {
 			users = buildVlessUser(userInfo)
@@ -266,7 +235,7 @@ func (c *Controller) addNewUser(userInfo *[]api.UserInfo, nodeInfo *api.NodeInfo
 	} else {
 		return fmt.Errorf("Unsupported node type: %s", nodeInfo.NodeType)
 	}
-
+	tag := fmt.Sprintf("%s_%d", nodeInfo.NodeType, nodeInfo.Port)
 	err = c.addUsers(users, tag)
 	if err != nil {
 		return err
@@ -329,11 +298,10 @@ func (c *Controller) userInfoMonitor() (err error) {
 	if err != nil {
 		log.Print(err)
 	}
-	tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
 	// Get User traffic
 	userTraffic := make([]api.UserTraffic, 0)
 	for _, user := range *c.userList {
-		up, down := c.getTraffic(fmt.Sprintf("%s|%d", tag, user.UID))
+		up, down := c.getTraffic(user.Email)
 		if up > 0 || down > 0 {
 			userTraffic = append(userTraffic, api.UserTraffic{
 				UID:      user.UID,
@@ -350,25 +318,16 @@ func (c *Controller) userInfoMonitor() (err error) {
 	}
 
 	// Report Online info
-	if onlineDevice, err := c.GetOnlineDevice(tag); err != nil {
+	tag := fmt.Sprintf("%s_%d", c.nodeInfo.NodeType, c.nodeInfo.Port)
+	onlineDevice, err := c.GetOnlineDevice(tag)
+	if err != nil {
 		log.Print(err)
-	} else if len(*onlineDevice) > 0 {
+		return nil
+	}
+	if len(*onlineDevice) > 0 {
 		if err = c.apiClient.ReportNodeOnlineUsers(onlineDevice); err != nil {
 			log.Print(err)
-		} else {
-			log.Printf("Report %d online users", len(*onlineDevice))
 		}
-	}
-	// Report Illegal user
-	if detectResult, err := c.GetDetectResult(tag); err != nil {
-		log.Print(err)
-	} else if len(*detectResult) > 0 {
-		if err = c.apiClient.ReportIllegal(detectResult); err != nil {
-			log.Print(err)
-		} else {
-			log.Printf("Report %d illegal behaviors", len(*detectResult))
-		}
-
 	}
 	return nil
 }

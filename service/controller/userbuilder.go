@@ -24,7 +24,7 @@ func buildVmessUser(userInfo *[]api.UserInfo, serverAlterID int) (users []*proto
 		}
 		users[i] = &protocol.User{
 			Level:   0,
-			Email:   user.EmailTag, // Email: email|uid
+			Email:   user.Email,
 			Account: serial.ToTypedMessage(vmessAccount.Build()),
 		}
 	}
@@ -40,7 +40,7 @@ func buildVlessUser(userInfo *[]api.UserInfo) (users []*protocol.User) {
 		}
 		users[i] = &protocol.User{
 			Level:   0,
-			Email:   user.EmailTag,
+			Email:   user.Email,
 			Account: serial.ToTypedMessage(vlessAccount),
 		}
 	}
@@ -56,7 +56,7 @@ func buildTrojanUser(userInfo *[]api.UserInfo) (users []*protocol.User) {
 		}
 		users[i] = &protocol.User{
 			Level:   0,
-			Email:   user.EmailTag,
+			Email:   user.Email,
 			Account: serial.ToTypedMessage(trojanAccount),
 		}
 	}
@@ -76,7 +76,7 @@ func buildSSUser(userInfo *[]api.UserInfo) (users []*protocol.User) {
 				}
 				users = append(users, &protocol.User{
 					Level:   0,
-					Email:   user.EmailTag,
+					Email:   user.Email,
 					Account: serial.ToTypedMessage(ssAccount),
 				})
 			}

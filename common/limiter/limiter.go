@@ -37,25 +37,28 @@ func (l *Limiter) AddInboundLimiter(tag string, nodeSpeedLimit uint64, userList 
 	}
 	userMap := new(sync.Map)
 	for _, user := range *userList {
-		userMap.Store(user.EmailTag, user)
+		userMap.Store(user.Email, user)
 	}
 	inboundInfo.UserInfo = userMap
 	l.InboundInfo.Store(tag, inboundInfo) // Replace the old inbound info
 	return nil
 }
 
-func (l *Limiter) UpdateInboundLimiter(tag string, updatedUserList *[]api.UserInfo) error {
+func (l *Limiter) UpdateInboundLimiter(tag string, updatedNodeSpeedLimit uint64, updatedUserList *[]api.UserInfo) error {
 
 	if value, ok := l.InboundInfo.Load(tag); ok {
 		inboundInfo := value.(*InboundInfo)
+		// Update Node info
+		if inboundInfo.NodeSpeedLimit != updatedNodeSpeedLimit {
+			inboundInfo.BucketHub = new(sync.Map)
+		}
+		inboundInfo.NodeSpeedLimit = updatedNodeSpeedLimit
 		// Update User info
 		for _, u := range *updatedUserList {
-			inboundInfo.UserInfo.Store(u.EmailTag, u)
-			limit := determineRate(inboundInfo.NodeSpeedLimit, u.SpeedLimit) // If need the limit
-			if limit > 0 {
-				limiter := ratelimit.NewBucketWithQuantum(time.Duration(int64(time.Second)), int64(limit), int64(limit)) // Byte/s
-				inboundInfo.BucketHub.Store(u.EmailTag, limiter)
-			}
+			inboundInfo.UserInfo.Store(u.Email, u)
+			limit := determineRate(updatedNodeSpeedLimit, u.SpeedLimit)                                              // If need the limit
+			limiter := ratelimit.NewBucketWithQuantum(time.Duration(int64(time.Second)), int64(limit), int64(limit)) // Byte/s
+			inboundInfo.BucketHub.Store(u.Email, limiter)
 		}
 	} else {
 		return fmt.Errorf("no such inbound in limiter: %s", tag)
